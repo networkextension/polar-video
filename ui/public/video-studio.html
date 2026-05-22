@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title data-i18n-title="video.title">Video Studio</title>
+    <link rel="icon" type="image/svg+xml" href="/assets/polaris-logo.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="lp-page">
+    <div class="lp-app">
+      <aside class="lp-sidebar">
+        <a class="lp-brand" href="/dashboard.html" data-site-brand>
+          <img data-site-icon alt="" />
+          <span class="lp-brand-name" data-site-name>Polar-</span>
+        </a>
+        <nav class="lp-nav">
+          <a class="lp-nav-item" href="/dashboard.html">
+            <span class="lp-nav-icon" data-icon="layout-dashboard">⊞</span><span>Dashboard</span>
+          </a>
+          <a class="lp-nav-item" href="/teams.html">
+            <span class="lp-nav-icon" data-icon="users-round">⌂</span><span data-i18n="nav.teams">工作区</span>
+          </a>
+          <a class="lp-nav-item" href="/posts.html">
+            <span class="lp-nav-icon" data-icon="message-square">◎</span><span>Posts</span>
+          </a>
+          <a class="lp-nav-item" href="/markdowns.html">
+            <span class="lp-nav-icon" data-icon="file-text">◈</span><span>Markdowns</span>
+          </a>
+          <a class="lp-nav-item" href="/chat.html">
+            <span class="lp-nav-icon" data-icon="message-circle">◉</span><span>Chat</span>
+          </a>
+          <a class="lp-nav-item active" href="/video-studio.html">
+            <span class="lp-nav-icon" data-icon="video">▶</span><span data-i18n="nav.videoStudio">Video Studio</span>
+          </a>
+          <a class="lp-nav-item" href="/hosts.html">
+            <span class="lp-nav-icon" data-icon="server">▣</span><span data-i18n="nav.hosts">主机</span>
+          </a>
+          <a class="lp-nav-item" href="/editor.html">
+            <span class="lp-nav-icon" data-icon="code">✎</span><span>Editor</span>
+          </a>
+          <a class="lp-nav-item" href="/latch.html" hidden data-admin-nav>
+            <span class="lp-nav-icon" data-icon="settings">⚙</span><span data-i18n="nav.latch">Latch</span>
+          </a>
+          <a class="lp-nav-item" href="/bots.html" hidden data-admin-nav>
+            <span class="lp-nav-icon" data-icon="bot">◉</span><span data-i18n="nav.bots">Bot Management</span>
+          </a>
+          <a class="lp-nav-item" href="/prompts.html" hidden data-admin-nav>
+            <span class="lp-nav-icon" data-icon="sparkles">✦</span><span>Prompt 模板</span>
+          </a>
+          <a class="lp-nav-item" href="/grafana/" target="_blank" rel="noopener" hidden data-admin-nav>
+            <span class="lp-nav-icon" data-icon="line-chart">📊</span><span>Grafana</span>
+          </a>
+          <a class="lp-nav-item" href="/admin.html" hidden data-admin-nav>
+            <span class="lp-nav-icon" data-icon="users-cog">☍</span><span data-i18n="nav.userAdmin">用户管理</span>
+          </a>
+        </nav>
+        <div class="lp-sidebar-foot">
+          <div class="lp-foot-avatar" id="lpFootAvatar">U</div>
+          <div class="lp-foot-info">
+            <div class="lp-foot-name" id="lpFootName">—</div>
+            <div class="lp-foot-role" id="lpFootRole">—</div>
+          </div>
+          <div class="lp-sidebar-foot-actions">
+            <button class="lp-foot-icon-btn" type="button" data-open-settings-center data-settings-target="personalization" title="Settings" data-i18n-tooltip="nav.settings"><span data-icon="settings"></span></button>
+            <button id="logoutBtn" class="lp-foot-icon-btn" type="button" title="Log out"><span data-icon="log-out"></span></button>
+          </div>
+        </div>
+      </aside>
+
+      <div class="lp-main" style="overflow:hidden;">
+        <div class="lp-topbar">
+          <span class="lp-topbar-title" data-i18n="video.title">Video Studio</span>
+          <div class="lp-topbar-end">
+            <a class="lp-topbar-back" href="/dashboard.html" data-i18n="chat.backToDashboard">Dashboard</a>
+          </div>
+        </div>
+
+        <div class="lp-content" style="padding:0; overflow:hidden; flex:1; display:flex;">
+          <div class="video-studio-layout">
+
+            <aside class="video-studio-projects">
+              <div class="video-studio-projects-head">
+                <span class="badge" data-i18n="video.projects">Projects</span>
+                <button id="videoNewProjectBtn" class="btn-chip" type="button" data-i18n="video.newProject">New project</button>
+              </div>
+              <div id="videoProjectList" class="video-studio-project-list">
+                <div class="chat-empty" data-i18n="common.loading">Loading...</div>
+              </div>
+            </aside>
+
+            <section class="video-studio-detail" id="videoStudioDetail">
+              <div class="video-studio-empty" id="videoStudioEmpty">
+                <div class="chat-empty" data-i18n="video.selectProject">Select a project on the left or create a new one</div>
+              </div>
+
+              <div class="video-studio-project" id="videoStudioProject" hidden>
+                <header class="video-studio-project-head">
+                  <input id="videoProjectTitle" class="input video-studio-title-input" type="text" />
+                  <div class="video-studio-project-meta">
+                    <span id="videoProjectStatus" class="video-status-pill"></span>
+                    <select id="videoProjectConfigSelect" class="input"></select>
+                    <button id="videoSubmitAllBtn" class="btn-chip" type="button" data-i18n="video.submitAll">Submit all</button>
+                    <button id="videoDownloadAllBtn" class="btn-chip" type="button" data-i18n="video.downloadAllShots">Download all</button>
+                    <button id="videoRenderBtn" class="btn-chip" type="button" data-i18n="video.render">Generate preview</button>
+                    <button id="videoDeleteProjectBtn" class="btn-chip" type="button" data-i18n="common.delete">Delete</button>
+                  </div>
+                </header>
+
+                <section class="video-studio-section">
+                  <div class="video-studio-section-head">
+                    <span class="badge" data-i18n="video.shots">Shots</span>
+                    <div class="video-studio-section-actions">
+                      <button id="videoBulkImportBtn" class="btn-chip" type="button" data-i18n="video.bulkImport">Bulk import</button>
+                      <button id="videoAddShotBtn" class="btn-chip" type="button" data-i18n="video.addShot">Add shot</button>
+                    </div>
+                  </div>
+                  <div id="videoReferenceStrip" class="video-reference-strip" hidden></div>
+                  <div id="videoBulkImportPanel" class="video-bulk-import" hidden>
+                    <p class="video-bulk-hint" data-i18n="video.bulkImportHint">
+                      Paste your full script — one shot per paragraph, separated by blank lines.
+                      Each paragraph becomes a new shot in order.
+                    </p>
+                    <textarea id="videoBulkImportText" class="input video-bulk-textarea" rows="10" data-i18n-placeholder="video.bulkImportPlaceholder" placeholder="Shot 1 prompt...&#10;&#10;Shot 2 prompt...&#10;&#10;Shot 3 prompt..."></textarea>
+                    <div class="video-bulk-actions">
+                      <span id="videoBulkImportPreview" class="video-bulk-preview"></span>
+                      <button id="videoBulkImportCancelBtn" class="btn-chip" type="button" data-i18n="common.cancel">Cancel</button>
+                      <button id="videoBulkImportConfirmBtn" class="btn-chip" type="button" data-i18n="video.bulkImportConfirm">Import shots</button>
+                    </div>
+                  </div>
+                  <div id="videoShotList" class="video-shot-list"></div>
+                </section>
+
+                <section class="video-studio-section">
+                  <div class="video-studio-section-head">
+                    <span class="badge" data-i18n="video.audio">Audio</span>
+                  </div>
+                  <div class="video-audio-grid">
+                    <div class="video-audio-card">
+                      <div class="video-audio-card-head">
+                        <span class="video-audio-kind" data-i18n="video.bgm">Background music</span>
+                        <label class="btn-chip">
+                          <span data-i18n="video.uploadAudio">Upload</span>
+                          <input type="file" id="videoBgmInput" accept="audio/*" hidden />
+                        </label>
+                      </div>
+                      <div id="videoBgmList" class="video-audio-list"></div>
+                    </div>
+                    <div class="video-audio-card">
+                      <div class="video-audio-card-head">
+                        <span class="video-audio-kind" data-i18n="video.voiceover">Voiceover</span>
+                        <div class="video-voice-controls">
+                          <button id="videoRecordBtn" class="btn-chip" type="button" data-i18n="video.record">Record</button>
+                          <label class="btn-chip">
+                            <span data-i18n="video.uploadAudio">Upload</span>
+                            <input type="file" id="videoVoiceInput" accept="audio/*" hidden />
+                          </label>
+                        </div>
+                      </div>
+                      <div id="videoRecordPreview" class="video-record-preview" hidden></div>
+                      <div id="videoVoiceList" class="video-audio-list"></div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="video-studio-section">
+                  <div class="video-studio-section-head">
+                    <span class="badge" data-i18n="video.finalVideo">Final video</span>
+                  </div>
+                  <div id="videoFinalSection" class="video-final-section">
+                    <div class="chat-empty" data-i18n="video.notRendered">Not rendered yet — submit at least one shot, then click Render final.</div>
+                  </div>
+                </section>
+              </div>
+            </section>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/scripts/video-studio.js"></script>
+  </body>
+</html>
