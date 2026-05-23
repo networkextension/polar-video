@@ -2,7 +2,7 @@
 // the shared http.ts helper so the access-token refresh interceptor and
 // credential-include settings apply uniformly.
 
-import { request, requestJson } from "./http.js";
+import { request, requestJson } from "@networkextension/polar-ui-common/api/http";
 import type {
   VideoLLMConfigListResponse,
   VideoProjectDetailResponse,
