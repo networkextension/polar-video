@@ -26,11 +26,11 @@ import {
   updateVideoShot,
   uploadVideoAsset,
 } from "./api/video.js";
-import { fetchCurrentUser, logout } from "./api/session.js";
-import { byId } from "./lib/dom.js";
-import { hydrateSiteBrand, renderSidebarFoot } from "./lib/site.js";
-import { bindThemeSync, initStoredTheme } from "./lib/theme.js";
-import { t } from "./lib/i18n.js";
+import { fetchCurrentUser, logout } from "@networkextension/polar-ui-common/api/session";
+import { byId } from "@networkextension/polar-ui-common/lib/dom";
+import { hydrateSiteBrand, renderSidebarFoot } from "@networkextension/polar-ui-common/lib/site";
+import { bindThemeSync, initStoredTheme } from "@networkextension/polar-ui-common/lib/theme";
+import { t } from "@networkextension/polar-ui-common/lib/i18n";
 import type {
   VideoAsset,
   VideoLLMConfig,
