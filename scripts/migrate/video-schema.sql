@@ -74,3 +74,27 @@ CREATE TABLE IF NOT EXISTS video_assets (
     created_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_video_assets_project ON video_assets(project_id, kind);
+
+-- ============================================================
+-- Per-shot billing columns (P0 of doc/llm/video-billing.md).
+--
+-- All additive; ALTER … ADD COLUMN IF NOT EXISTS so re-running
+-- the script on an older DB is safe. Cost is computed at
+-- poll-success time from a local pricing table (no provider
+-- usage API call). cost_per_frame_usd is the amortized number
+-- pinned at write time so analytics queries don't need to
+-- recompute fps each call.
+-- ============================================================
+ALTER TABLE video_shots
+    ADD COLUMN IF NOT EXISTS provider              TEXT,
+    ADD COLUMN IF NOT EXISTS billing_model         TEXT,
+    ADD COLUMN IF NOT EXISTS resolution            TEXT,
+    ADD COLUMN IF NOT EXISTS duration_charged_sec  NUMERIC(6,3),
+    ADD COLUMN IF NOT EXISTS fps                   INT,
+    ADD COLUMN IF NOT EXISTS frames_total          INT,
+    ADD COLUMN IF NOT EXISTS cost_usd              NUMERIC(12,6),
+    ADD COLUMN IF NOT EXISTS cost_per_frame_usd    NUMERIC(14,9),
+    ADD COLUMN IF NOT EXISTS billing_meta          JSONB,
+    ADD COLUMN IF NOT EXISTS billed_at             TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_video_shots_billed_at
+    ON video_shots(billed_at DESC) WHERE billed_at IS NOT NULL;

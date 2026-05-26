@@ -476,6 +476,107 @@ func (p *Plugin) markVideoShotStatus(id int64, status, videoURL, errorMessage st
 	return err
 }
 
+// BilledShotFields is the per-shot billing payload written by the
+// poll worker after a successful generation. Mirrors the columns
+// added in the P0 migration of doc/llm/video-billing.md.
+type BilledShotFields struct {
+	Provider           string
+	Model              string
+	Resolution         string
+	DurationChargedSec float64
+	FPS                int
+	FramesTotal        int
+	CostUSD            float64
+	CostPerFrameUSD    float64
+	BillingMetaJSON    []byte // already-marshaled JSON for the JSONB column; nil → SQL NULL
+}
+
+// markVideoShotBilled writes the billing columns once per shot. The
+// `billed_at IS NULL` clause makes the update idempotent — a re-poll
+// (or a manual reconcile) will not double-count.
+func (p *Plugin) markVideoShotBilled(id int64, in BilledShotFields, now time.Time) error {
+	var meta interface{}
+	if len(in.BillingMetaJSON) > 0 {
+		meta = in.BillingMetaJSON
+	}
+	_, err := p.DB.Exec(
+		`UPDATE video_shots
+		    SET provider = $2,
+		        billing_model = $3,
+		        resolution = $4,
+		        duration_charged_sec = $5,
+		        fps = $6,
+		        frames_total = $7,
+		        cost_usd = $8,
+		        cost_per_frame_usd = $9,
+		        billing_meta = $10,
+		        billed_at = $11,
+		        updated_at = $11
+		  WHERE id = $1 AND billed_at IS NULL`,
+		id,
+		in.Provider, in.Model, in.Resolution,
+		in.DurationChargedSec, in.FPS, in.FramesTotal,
+		in.CostUSD, in.CostPerFrameUSD,
+		meta, now,
+	)
+	return err
+}
+
+// getVideoShotBilling reads back the billing columns for diagnostics
+// and for the dock POST payload (so the polar-video → dock hop in P2
+// can use canonical values rather than re-derive them).
+func (p *Plugin) getVideoShotBilling(id int64) (BilledShotFields, bool, error) {
+	var (
+		out      BilledShotFields
+		dur      sql.NullFloat64
+		fps      sql.NullInt64
+		frames   sql.NullInt64
+		cost     sql.NullFloat64
+		perFrame sql.NullFloat64
+		meta     []byte
+		billedAt sql.NullTime
+	)
+	err := p.DB.QueryRow(
+		`SELECT COALESCE(provider, ''),
+		        COALESCE(billing_model, ''),
+		        COALESCE(resolution, ''),
+		        duration_charged_sec, fps, frames_total,
+		        cost_usd, cost_per_frame_usd, billing_meta, billed_at
+		   FROM video_shots WHERE id = $1`,
+		id,
+	).Scan(
+		&out.Provider, &out.Model, &out.Resolution,
+		&dur, &fps, &frames,
+		&cost, &perFrame, &meta, &billedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return out, false, nil
+		}
+		return out, false, err
+	}
+	if !billedAt.Valid {
+		return out, false, nil
+	}
+	if dur.Valid {
+		out.DurationChargedSec = dur.Float64
+	}
+	if fps.Valid {
+		out.FPS = int(fps.Int64)
+	}
+	if frames.Valid {
+		out.FramesTotal = int(frames.Int64)
+	}
+	if cost.Valid {
+		out.CostUSD = cost.Float64
+	}
+	if perFrame.Valid {
+		out.CostPerFrameUSD = perFrame.Float64
+	}
+	out.BillingMetaJSON = meta
+	return out, true, nil
+}
+
 func (p *Plugin) deleteVideoShot(projectID, id int64) (bool, error) {
 	res, err := p.DB.Exec(`DELETE FROM video_shots WHERE id = $1 AND project_id = $2`, id, projectID)
 	if err != nil {
