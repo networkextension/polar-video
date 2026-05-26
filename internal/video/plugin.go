@@ -267,11 +267,19 @@ func (p *Plugin) heartbeatLoop(ctx context.Context) {
 	}
 }
 
+// videoUIRoutes — sidebar entries this plugin contributes. Heartbeated
+// up to dock; aggregated into /api/plugin-ui-routes for polar-dock-ui's
+// dynamic sidebar. See task #196.
+var videoUIRoutes = []sdk.UIRoute{
+	{Path: "/video-studio.html", Label: "Video Studio", Icon: "video", Order: 55},
+}
+
 func (p *Plugin) beat(_ context.Context) {
 	err := p.Dock.Heartbeat(sdk.HeartbeatOpts{
 		Version:       p.Ver,
 		Endpoint:      p.Listen,
 		UptimeSeconds: int64(time.Since(p.startedAt).Seconds()),
+		UIRoutes:      videoUIRoutes,
 	})
 	if err != nil {
 		log.Printf("video: heartbeat failed: %v", err)
