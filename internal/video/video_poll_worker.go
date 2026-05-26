@@ -108,6 +108,11 @@ func (p *Plugin) pollOneVideoShot(ctx context.Context, shot *VideoShot) error {
 		if err := p.markVideoShotStatus(shot.ID, VideoShotStatusSucceeded, stored, "", now); err != nil {
 			return err
 		}
+		// Per-shot billing (P0 of doc/llm/video-billing.md). Best-effort:
+		// failures are logged but never block the success path. Pricing
+		// is local — Seedance doesn't return cost in the task envelope.
+		// Idempotency guarded by `billed_at IS NULL` in markVideoShotBilled.
+		p.billShotSuccess(shot, cfg, now)
 		// Cache a poster (first-frame jpg) so the project page can show
 		// thumbnails without browsers having to range-request the MP4.
 		// Failure is non-fatal — the frontend just falls back to native
@@ -212,6 +217,45 @@ func (p *Plugin) downloadAndStoreVideo(ctx context.Context, upstreamURL, filenam
 		return "", err
 	}
 	return publicURL, nil
+}
+
+// billShotSuccess writes the per-shot billing row right after the
+// poll worker observes a `succeeded` status. Pure-local pricing (no
+// vendor API call); idempotent via `billed_at IS NULL` in
+// markVideoShotBilled. Phase P2 will additionally POST the same
+// numbers to dock's /internal/v1/billing/video-shots ledger.
+func (p *Plugin) billShotSuccess(shot *VideoShot, cfg *LLMConfig, now time.Time) {
+	if shot == nil || cfg == nil {
+		return
+	}
+	resolution := ResolutionFromShot(cfg.Extras)
+	res := PriceShot(ShotPricingInput{
+		Provider:    cfg.ProviderKind,
+		Model:       cfg.Model,
+		Resolution:  resolution,
+		DurationSec: shot.Duration,
+		Audio:       shot.GenerateAudio,
+	})
+	metaJSON, err := MarshalBillingMeta(res.BillingMeta)
+	if err != nil {
+		log.Printf("video billing: marshal meta failed shot=%d: %v", shot.ID, err)
+		// keep going — empty meta is still better than skipping the row
+		metaJSON = nil
+	}
+	fields := BilledShotFields{
+		Provider:           cfg.ProviderKind,
+		Model:              cfg.Model,
+		Resolution:         resolution,
+		DurationChargedSec: float64(shot.Duration),
+		FPS:                res.FPS,
+		FramesTotal:        res.FramesTotal,
+		CostUSD:            res.CostUSD,
+		CostPerFrameUSD:    res.CostPerFrameUSD,
+		BillingMetaJSON:    metaJSON,
+	}
+	if err := p.markVideoShotBilled(shot.ID, fields, now); err != nil {
+		log.Printf("video billing: persist failed shot=%d: %v", shot.ID, err)
+	}
 }
 
 func copyFile(src, dst string) error {
