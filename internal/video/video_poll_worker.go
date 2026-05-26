@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	sdk "github.com/networkextension/polar-sdk"
 )
 
 // runVideoPollWorker is started once at server boot. It polls every
@@ -112,7 +114,7 @@ func (p *Plugin) pollOneVideoShot(ctx context.Context, shot *VideoShot) error {
 		// failures are logged but never block the success path. Pricing
 		// is local — Seedance doesn't return cost in the task envelope.
 		// Idempotency guarded by `billed_at IS NULL` in markVideoShotBilled.
-		p.billShotSuccess(shot, cfg, now)
+		p.billShotSuccess(project, shot, cfg, now)
 		// Cache a poster (first-frame jpg) so the project page can show
 		// thumbnails without browsers having to range-request the MP4.
 		// Failure is non-fatal — the frontend just falls back to native
@@ -224,8 +226,8 @@ func (p *Plugin) downloadAndStoreVideo(ctx context.Context, upstreamURL, filenam
 // vendor API call); idempotent via `billed_at IS NULL` in
 // markVideoShotBilled. Phase P2 will additionally POST the same
 // numbers to dock's /internal/v1/billing/video-shots ledger.
-func (p *Plugin) billShotSuccess(shot *VideoShot, cfg *LLMConfig, now time.Time) {
-	if shot == nil || cfg == nil {
+func (p *Plugin) billShotSuccess(project *VideoProject, shot *VideoShot, cfg *LLMConfig, now time.Time) {
+	if project == nil || shot == nil || cfg == nil {
 		return
 	}
 	resolution := ResolutionFromShot(cfg.Extras)
@@ -255,6 +257,47 @@ func (p *Plugin) billShotSuccess(shot *VideoShot, cfg *LLMConfig, now time.Time)
 	}
 	if err := p.markVideoShotBilled(shot.ID, fields, now); err != nil {
 		log.Printf("video billing: persist failed shot=%d: %v", shot.ID, err)
+		// Even on local-write failure, attempt the dock POST below —
+		// next tick will retry the local write thanks to the
+		// `billed_at IS NULL` guard, but the dock side has its own
+		// UNIQUE(shot_id) dedup so a successful post here is safe.
+	}
+	p.postShotBillingToDock(project, shot, fields, res.BillingMeta)
+}
+
+// postShotBillingToDock fans the per-shot billing row out to dock's
+// workspace ledger via the polar-sdk client. Best-effort: a failure
+// here is logged and dropped — dock dedupes by ShotID so the next
+// successful retry (manual or next poll tick) is idempotent.
+//
+// Only fires when the local write produced real numbers; rows with
+// cost=0 from a pricing miss still get posted so the workspace audit
+// can flag them.
+func (p *Plugin) postShotBillingToDock(project *VideoProject, shot *VideoShot, fields BilledShotFields, meta map[string]any) {
+	if p == nil || p.Dock == nil {
+		return
+	}
+	if project.WorkspaceID == "" {
+		// Personal-project rows pre-T6 didn't carry a workspace_id;
+		// can't post to a workspace ledger without one.
+		return
+	}
+	req := sdk.VideoShotCallRecord{
+		WorkspaceID:        project.WorkspaceID,
+		ProjectID:          project.ID,
+		ShotID:             shot.ID,
+		Provider:           fields.Provider,
+		Model:              fields.Model,
+		Resolution:         fields.Resolution,
+		DurationChargedSec: fields.DurationChargedSec,
+		FPS:                fields.FPS,
+		FramesTotal:        fields.FramesTotal,
+		CostUSD:            fields.CostUSD,
+		CostPerFrameUSD:    fields.CostPerFrameUSD,
+		BillingMeta:        meta,
+	}
+	if err := p.Dock.VideoShotCallRecord(req); err != nil {
+		log.Printf("video billing: dock POST failed shot=%d: %v", shot.ID, err)
 	}
 }
 
