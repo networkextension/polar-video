@@ -12,9 +12,12 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	sdk "github.com/networkextension/polar-sdk"
 )
 
 // ---- Mirrored row types (canonical = dock/store.go) ------------------
@@ -168,20 +171,36 @@ func removeLocalFile(path string) {
 	_ = osRemove(path)
 }
 
-// chatStorageStub satisfies the .Store(ctx, path, filename, mime)
-// call the poll worker + renderer + studio handlers make against
-// p.chatStorage. In dock this wrote into the polar_attachment store
-// (S3 / local). The extracted video-svc owns its own BlobDir
-// (p.BlobDir) so until polar-attachment is its own plugin too, we
-// log + return an empty URL so the caller surfaces a clean failure.
-// TODO(extract): swap for SDK AttachmentUpload when that lands.
-type chatStorageStub struct{ blobDir string }
+// chatStorageStub is the video-svc upload-store shim. It now uploads
+// generated media (shots, posters, source assets) to the central
+// assets module via the SDK and returns a permanent /api/media/<id>
+// handle that dock serves with a signed provider URL — so video bytes
+// flow client↔provider, bypassing both dock and video-svc. The local
+// copy in blobDir remains as a transient/fallback.
+type chatStorageStub struct {
+	blobDir string
+	dock    *sdk.Client
+}
 
-// Store writes src→<blobDir>/<filename>; returns the public URL nginx
-// will serve. Stub: log + echo a /uploads/<filename> URL so handler
-// code paths that try to persist the URL behave deterministically.
+// Store uploads the file at src into assets (platform-public) and
+// returns /api/media/<asset_id>. On any failure it falls back to the
+// legacy /uploads/<filename> URL (the file is already in blobDir), so
+// a provider hiccup never breaks video generation.
 func (cs *chatStorageStub) Store(ctx context.Context, src, filename, mimeType string) (string, error) {
-	log.Printf("video: TODO(extract) chatStorage.Store src=%s file=%s mime=%s — returning synthetic /uploads URL", src, filename, mimeType)
+	if cs.dock != nil {
+		if f, err := os.Open(src); err != nil {
+			log.Printf("video: open %s for asset upload failed: %v", src, err)
+		} else {
+			meta, uerr := cs.dock.AssetUpload(sdk.AssetUploadInput{
+				Kind: "video", Name: filename, Mime: mimeType, // WorkspaceID nil → platform-public
+			}, f)
+			f.Close()
+			if uerr == nil && meta != nil {
+				return "/api/media/" + strconv.FormatInt(meta.ID, 10), nil
+			}
+			log.Printf("video: asset upload failed for %s, falling back to /uploads: %v", filename, uerr)
+		}
+	}
 	return "/uploads/" + filename, nil
 }
 

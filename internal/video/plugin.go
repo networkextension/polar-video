@@ -163,7 +163,7 @@ func New(ctx context.Context, cfg Config) (*Plugin, error) {
 		videoPollIntervalSec: pollSec,
 		videoProvider:        newVideoProviderClient(),
 		videoRenderQueue:     make(chan int64, 16),
-		chatStorage:          &chatStorageStub{blobDir: cfg.BlobDir},
+		chatStorage:          &chatStorageStub{blobDir: cfg.BlobDir, dock: dock},
 		metrics:              newVideoMetrics(),
 		startedAt:            time.Now(),
 	}, nil
