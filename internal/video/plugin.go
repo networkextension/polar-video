@@ -212,6 +212,7 @@ func (p *Plugin) Start(ctx context.Context) {
 	go p.heartbeatLoop(ctx)
 	go p.runVideoPollWorker(ctx)
 	go p.runVideoRenderWorker(ctx)
+	go p.backfillVideoAssetsOnce(ctx) // drain any /uploads stragglers into assets
 }
 
 func (p *Plugin) Close() error {
