@@ -8,13 +8,10 @@ package video
 import (
 	"archive/zip"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -98,52 +95,17 @@ func (p *Plugin) handleVideoProjectShotsZip(c *gin.Context) {
 	}
 }
 
-// streamShotIntoZip resolves a stored video URL — local /uploads/<file> or
-// remote http(s) — and copies the bytes straight into the zip writer.
-// Mirrors the resolver used by the render worker so local + R2 paths work
-// identically; we don't import that helper directly because it expects a
-// destination file path rather than an io.Writer.
+// streamShotIntoZip resolves a stored video URL via the shared asset-aware
+// resolver (/api/media/<id> or remote http(s)) and copies the bytes
+// straight into the zip writer.
 func (p *Plugin) streamShotIntoZip(ctx context.Context, storedURL string, dst io.Writer) error {
-	parsed, err := url.Parse(storedURL)
-	if err == nil && parsed.Scheme == "" && strings.HasPrefix(parsed.Path, "/uploads/") {
-		filename := strings.TrimPrefix(parsed.Path, "/uploads/")
-		src, openErr := os.Open(filepath.Join(p.BlobDir, filename))
-		if openErr != nil {
-			return openErr
-		}
-		defer src.Close()
-		_, err := io.Copy(dst, src)
+	rc, err := p.openStoredBlob(ctx, storedURL)
+	if err != nil {
 		return err
 	}
-	if err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") {
-		req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, storedURL, nil)
-		if rerr != nil {
-			return rerr
-		}
-		client := &http.Client{Timeout: videoExportShotDownloadTimeout}
-		resp, dlErr := client.Do(req)
-		if dlErr != nil {
-			return dlErr
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return fmt.Errorf("upstream http %d", resp.StatusCode)
-		}
-		_, err := io.Copy(dst, resp.Body)
-		return err
-	}
-	if !strings.Contains(storedURL, "://") {
-		filename := strings.TrimPrefix(storedURL, "/")
-		filename = strings.TrimPrefix(filename, "uploads/")
-		src, openErr := os.Open(filepath.Join(p.BlobDir, filename))
-		if openErr != nil {
-			return openErr
-		}
-		defer src.Close()
-		_, err := io.Copy(dst, src)
-		return err
-	}
-	return errors.New("unsupported url scheme")
+	defer rc.Close()
+	_, err = io.Copy(dst, rc)
+	return err
 }
 
 func buildPromptsManifest(project *VideoProject, shots []VideoShot) string {

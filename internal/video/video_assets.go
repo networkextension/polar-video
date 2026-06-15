@@ -1,139 +1,71 @@
 package video
 
-// Assets migration (doc/arch/blob-storage-to-assets-migration.md in
-// polar-dock). chatStorageStub already uploads to the assets catalog and
-// returns /api/media/<id>, but falls back to /uploads/<file> when an
-// AssetUpload hiccups (the render/poll pipeline is long + expensive, so a
-// transient assets failure must not kill a job). This boot backfill
-// drains any /uploads stragglers into assets and rewrites the DB url, so
-// in steady state every blob lives in the central catalog.
+// Assets resolution (doc/arch/blob-storage-to-assets-migration.md in
+// polar-dock). Generated media (shots, posters, renders, source assets)
+// lives in the central polar-assets catalog; DB columns store the
+// "/api/media/<id>" handle. This file resolves that handle (+ remote
+// http(s) source URLs) to a byte stream for the render / export / studio
+// read paths. The transitional /uploads-fallback + boot backfill were
+// removed at cutover — assets is the single source of truth.
 
 import (
 	"context"
-	"crypto/rand"
-	"database/sql"
-	"encoding/hex"
-	"log"
-	"os"
-	"path/filepath"
+	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	sdk "github.com/networkextension/polar-sdk"
 )
 
-func videoRandHex(n int) string {
-	b := make([]byte, n)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+// parseMediaRef extracts the catalog asset id from a stored
+// "/api/media/<id>" URL. (0,false) for any other form.
+func parseMediaRef(s string) (int64, bool) {
+	const pfx = "/api/media/"
+	if !strings.HasPrefix(s, pfx) {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(s, pfx), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
 }
 
-func videoMimeForExt(ext string) string {
-	switch strings.ToLower(ext) {
-	case ".mp4", ".m4v":
-		return "video/mp4"
-	case ".mov":
-		return "video/quicktime"
-	case ".webm":
-		return "video/webm"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".mp3":
-		return "audio/mpeg"
-	case ".m4a", ".aac":
-		return "audio/aac"
-	case ".wav":
-		return "audio/wav"
-	default:
-		return "application/octet-stream"
-	}
-}
-
-// uploadVideoBlobToAssets uploads a local /uploads file into the assets
-// catalog and returns the "/api/media/<id>" url (platform-owned, matching
-// the chatStorage convention).
-func (p *Plugin) uploadVideoBlobToAssets(localURL string) (string, error) {
-	name := strings.TrimPrefix(localURL, "/uploads/")
-	abs := filepath.Join(p.BlobDir, name)
-	if _, err := os.Stat(abs); err != nil {
-		return "", err
-	}
-	f, err := os.Open(abs)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	ext := filepath.Ext(name)
-	meta, err := p.Dock.AssetUpload(sdk.AssetUploadInput{
-		Kind:    "video",
-		Name:    "video/" + videoRandHex(6) + ext,
-		Version: "v1",
-		Mime:    videoMimeForExt(ext),
-	}, f)
-	if err != nil {
-		return "", err
-	}
-	return "/api/media/" + strconv.FormatInt(meta.ID, 10), nil
-}
-
-// backfillVideoAssetsOnce rewrites any /uploads/* blob urls across the
-// video tables to assets-backed /api/media/<id>. Idempotent goroutine
-// from Start().
-func (p *Plugin) backfillVideoAssetsOnce(ctx context.Context) {
-	cols := []struct{ table, col, id string }{
-		{"video_shots", "video_url", "id"},
-		{"video_shots", "poster_url", "id"},
-		{"video_projects", "final_video_url", "id"},
-		{"video_assets", "url", "id"},
-	}
-	total := 0
-	for _, c := range cols {
-		total += p.backfillVideoColumn(ctx, c.table, c.col, c.id)
-	}
-	if total > 0 {
-		log.Printf("video: asset backfill: migrated %d blob(s) to assets", total)
-	}
-}
-
-func (p *Plugin) backfillVideoColumn(ctx context.Context, table, col, idcol string) int {
-	rows, err := p.DB.QueryContext(ctx,
-		`SELECT `+idcol+`, `+col+` FROM `+table+` WHERE `+col+` LIKE '/uploads/%'`)
-	if err != nil {
-		log.Printf("video: asset backfill: %s.%s query: %v", table, col, err)
-		return 0
-	}
-	type row struct {
-		id  int64
-		url string
-	}
-	var pending []row
-	for rows.Next() {
-		var r row
-		var u sql.NullString
-		if err := rows.Scan(&r.id, &u); err != nil {
-			continue
-		}
-		r.url = u.String
-		pending = append(pending, r)
-	}
-	rows.Close()
-
-	migrated := 0
-	for _, r := range pending {
-		newURL, err := p.uploadVideoBlobToAssets(r.url)
+// openStoredBlob resolves a stored video URL to a byte stream the caller
+// must Close. Two forms, post-cutover:
+//   - "/api/media/<id>" — central assets catalog (internal AssetDownload)
+//   - http(s)://        — remote provider / source URL
+// Legacy "/uploads/<file>" local reads were removed at cutover (rows are
+// migrated to /api/media/<id> before deploy).
+func (p *Plugin) openStoredBlob(ctx context.Context, storedURL string) (io.ReadCloser, error) {
+	if id, ok := parseMediaRef(storedURL); ok {
+		resp, err := p.Dock.AssetDownload(&sdk.AssetMeta{ID: id})
 		if err != nil {
-			log.Printf("video: asset backfill: %s.%s id=%d: %v (skip)", table, col, r.id, err)
-			continue
+			return nil, err
 		}
-		if _, err := p.DB.ExecContext(ctx,
-			`UPDATE `+table+` SET `+col+` = $2 WHERE `+idcol+` = $1`, r.id, newURL); err != nil {
-			log.Printf("video: asset backfill: %s.%s id=%d update: %v", table, col, r.id, err)
-			continue
+		if resp.StatusCode/100 != 2 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("asset %d download: HTTP %d", id, resp.StatusCode)
 		}
-		migrated++
-		log.Printf("video: asset backfill: %s.%s id=%d -> %s", table, col, r.id, newURL)
+		return resp.Body, nil
 	}
-	return migrated
+	if strings.HasPrefix(storedURL, "http://") || strings.HasPrefix(storedURL, "https://") {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, storedURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			resp.Body.Close()
+			return nil, fmt.Errorf("download %q: HTTP %d", storedURL, resp.StatusCode)
+		}
+		return resp.Body, nil
+	}
+	return nil, fmt.Errorf("unsupported video url: %q", storedURL)
 }

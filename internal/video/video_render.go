@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -312,50 +310,21 @@ func videoFFmpegBin() string {
 	return "ffmpeg"
 }
 
-// downloadOrCopy resolves a stored URL into a local file. Local URLs that
-// land in /uploads/ are copied directly from disk; remote URLs are
-// downloaded over HTTP to keep the render path agnostic to storage
-// backend (local disk vs R2).
+// downloadOrCopy resolves a stored URL into a local file via the shared
+// asset-aware resolver (/api/media/<id> from the catalog, or remote
+// http(s)), keeping the render path agnostic to the storage backend.
 func (p *Plugin) downloadOrCopy(ctx context.Context, storedURL, dst string) error {
-	parsed, err := url.Parse(storedURL)
-	if err == nil && parsed.Scheme == "" && strings.HasPrefix(parsed.Path, "/uploads/") {
-		// Local /uploads/<file>; reach into the uploadDir.
-		filename := strings.TrimPrefix(parsed.Path, "/uploads/")
-		src := filepath.Join(p.BlobDir, filename)
-		return copyFile(src, dst)
-	}
-	if err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") {
-		return httpDownload(ctx, storedURL, dst)
-	}
-	// Bare path? assume relative to uploadDir as a last resort.
-	if !strings.Contains(storedURL, "://") {
-		filename := strings.TrimPrefix(storedURL, "/")
-		filename = strings.TrimPrefix(filename, "uploads/")
-		return copyFile(filepath.Join(p.BlobDir, filename), dst)
-	}
-	return fmt.Errorf("unsupported url scheme: %s", storedURL)
-}
-
-func httpDownload(ctx context.Context, src, dst string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src, nil)
+	rc, err := p.openStoredBlob(ctx, storedURL)
 	if err != nil {
 		return err
 	}
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("download http %d", resp.StatusCode)
-	}
+	defer rc.Close()
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
-	_, err = io.Copy(out, resp.Body)
+	_, err = io.Copy(out, rc)
 	return err
 }
 
