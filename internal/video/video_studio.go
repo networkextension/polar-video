@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -409,38 +408,15 @@ func (p *Plugin) inlineCharacterReference(ctx context.Context, asset VideoAsset)
 	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(bytesData), nil
 }
 
-// readAssetBytes resolves an asset's stored URL to raw bytes. Local
-// /uploads/<file> paths are read straight off disk; remote http(s) URLs
-// are downloaded with a small timeout. Same resolver semantics as the
-// render worker's downloadOrCopy, but yielding bytes instead of a file.
+// readAssetBytes resolves an asset's stored URL to raw bytes via the
+// shared asset-aware resolver (/api/media/<id> or remote http(s)).
 func (p *Plugin) readAssetBytes(ctx context.Context, storedURL string) ([]byte, error) {
-	parsed, err := url.Parse(storedURL)
-	if err == nil && parsed.Scheme == "" && strings.HasPrefix(parsed.Path, "/uploads/") {
-		filename := strings.TrimPrefix(parsed.Path, "/uploads/")
-		return os.ReadFile(filepath.Join(p.BlobDir, filename))
+	rc, err := p.openStoredBlob(ctx, storedURL)
+	if err != nil {
+		return nil, err
 	}
-	if err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") {
-		req, rerr := http.NewRequestWithContext(ctx, http.MethodGet, storedURL, nil)
-		if rerr != nil {
-			return nil, rerr
-		}
-		client := &http.Client{Timeout: 30 * time.Second}
-		resp, dlErr := client.Do(req)
-		if dlErr != nil {
-			return nil, dlErr
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			return nil, fmt.Errorf("download asset http %d", resp.StatusCode)
-		}
-		return io.ReadAll(resp.Body)
-	}
-	if !strings.Contains(storedURL, "://") {
-		filename := strings.TrimPrefix(storedURL, "/")
-		filename = strings.TrimPrefix(filename, "uploads/")
-		return os.ReadFile(filepath.Join(p.BlobDir, filename))
-	}
-	return nil, fmt.Errorf("unsupported url scheme: %s", storedURL)
+	defer rc.Close()
+	return io.ReadAll(rc)
 }
 
 // extractCharacterFrameAsset downloads the shot's video into a temp dir,

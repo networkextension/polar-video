@@ -10,7 +10,7 @@ package video
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -182,26 +182,26 @@ type chatStorageStub struct {
 	dock    *sdk.Client
 }
 
-// Store uploads the file at src into assets (platform-public) and
-// returns /api/media/<asset_id>. On any failure it falls back to the
-// legacy /uploads/<filename> URL (the file is already in blobDir), so
-// a provider hiccup never breaks video generation.
-func (cs *chatStorageStub) Store(ctx context.Context, src, filename, mimeType string) (string, error) {
-	if cs.dock != nil {
-		if f, err := os.Open(src); err != nil {
-			log.Printf("video: open %s for asset upload failed: %v", src, err)
-		} else {
-			meta, uerr := cs.dock.AssetUpload(sdk.AssetUploadInput{
-				Kind: "video", Name: filename, Mime: mimeType, // WorkspaceID nil → platform-public
-			}, f)
-			f.Close()
-			if uerr == nil && meta != nil {
-				return "/api/media/" + strconv.FormatInt(meta.ID, 10), nil
-			}
-			log.Printf("video: asset upload failed for %s, falling back to /uploads: %v", filename, uerr)
-		}
+// Store uploads the file at src into the central assets catalog
+// (platform-public) and returns /api/media/<asset_id>. Post-cutover there
+// is no /uploads fallback — assets is the single source of truth, so an
+// upload failure is a hard error (the caller fails the generation step).
+func (cs *chatStorageStub) Store(_ context.Context, src, filename, mimeType string) (string, error) {
+	if cs.dock == nil {
+		return "", fmt.Errorf("video: asset client unavailable")
 	}
-	return "/uploads/" + filename, nil
+	f, err := os.Open(src)
+	if err != nil {
+		return "", fmt.Errorf("video: open %s for asset upload: %w", src, err)
+	}
+	meta, uerr := cs.dock.AssetUpload(sdk.AssetUploadInput{
+		Kind: "video", Name: filename, Mime: mimeType, // WorkspaceID nil → platform-public
+	}, f)
+	f.Close()
+	if uerr != nil || meta == nil {
+		return "", fmt.Errorf("video: asset upload %s: %w", filename, uerr)
+	}
+	return "/api/media/" + strconv.FormatInt(meta.ID, 10), nil
 }
 
 // chatStorage is a struct field on Plugin (NOT a method) to match the
