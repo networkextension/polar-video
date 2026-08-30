@@ -61,10 +61,10 @@
 
               <div class="video-studio-project" id="videoStudioProject" hidden>
                 <header class="video-studio-project-head">
-                  <input id="videoProjectTitle" class="input video-studio-title-input" type="text" />
+                  <input id="videoProjectTitle" class="input video-studio-title-input" type="text"  aria-label="Project title"/>
                   <div class="video-studio-project-meta">
                     <span id="videoProjectStatus" class="video-status-pill"></span>
-                    <select id="videoProjectConfigSelect" class="input"></select>
+                    <select id="videoProjectConfigSelect" class="input" aria-label="Project config"></select>
                     <button id="videoSubmitAllBtn" class="btn-chip" type="button" data-i18n="video.submitAll">Submit all</button>
                     <button id="videoDownloadAllBtn" class="btn-chip" type="button" data-i18n="video.downloadAllShots">Download all</button>
                     <button id="videoRenderBtn" class="btn-chip" type="button" data-i18n="video.render">Generate preview</button>
@@ -86,7 +86,7 @@
                       Paste your full script — one shot per paragraph, separated by blank lines.
                       Each paragraph becomes a new shot in order.
                     </p>
-                    <textarea id="videoBulkImportText" class="input video-bulk-textarea" rows="10" data-i18n-placeholder="video.bulkImportPlaceholder" placeholder="Shot 1 prompt...&#10;&#10;Shot 2 prompt...&#10;&#10;Shot 3 prompt..."></textarea>
+                    <textarea id="videoBulkImportText" class="input video-bulk-textarea" rows="10" data-i18n-placeholder="video.bulkImportPlaceholder" placeholder="Shot 1 prompt...&#10;&#10;Shot 2 prompt...&#10;&#10;Shot 3 prompt..." aria-label="Bulk import shots"></textarea>
                     <div class="video-bulk-actions">
                       <span id="videoBulkImportPreview" class="video-bulk-preview"></span>
                       <button id="videoBulkImportCancelBtn" class="btn-chip" type="button" data-i18n="common.cancel">Cancel</button>
